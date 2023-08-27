@@ -7,8 +7,8 @@ This file contains the functions that get option chain data for underlying symbo
 
 """
 
-import marketdata.utilities as utilities
-import marketdata.api_interface as api
+import mdapi_functions.api_interface as api
+import mdapi_functions.utilities as utilities
 
 
 def get_option_chain(underlying, ason_date=None, expiry_date=None, from_date=None, to_date=None, month=None, year=None,

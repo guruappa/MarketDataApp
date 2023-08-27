@@ -7,11 +7,11 @@ This file contains the functions that get data for stocks.
 
 """
 
-import marketdata.utilities as utilities
-import marketdata.api_interface as api
+import mdapi_functions.api_interface as api
+import mdapi_functions.utilities as utilities
 
 
-def get_stock_history(resolution, symbol, from_date=None, to_date=None, num_of_periods=None, exchange=None,
+def get_stock_candles(resolution, symbol, from_date=None, to_date=None, num_of_periods=None, exchange=None,
                       extended=False, country=None, adjustSplits=False, adjustDividends=False):
     """
     Get historical price candles for a stock.
@@ -75,7 +75,7 @@ def get_stock_history(resolution, symbol, from_date=None, to_date=None, num_of_p
             params['adjustdividends'] = adjustDividends
 
         final_url = api.get_final_url(base_url, params)
-        return api.get_history(final_url, symbol)
+        return api.get_candles(final_url, symbol)
     else:
         raise Exception("Parameters resolution and symbol are required")
 

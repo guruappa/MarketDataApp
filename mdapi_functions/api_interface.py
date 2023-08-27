@@ -3,7 +3,7 @@
 Author : Guruppa Padsali
 
 Purpose :
-This file contains the functions that interface with the marketdata.app api urls.  The functions process the json in the
+This file contains the functions that interface with the market_data_api.app api urls.  The functions process the json in the
 response object into formats that can be consumed in the downstream calls.
 
 """
@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 import requests
 
-import marketdata.utilities as utilities
+import mdapi_functions.utilities as utilities
 
-DATA_SOURCE = 'marketdata'
+DATA_SOURCE = 'market_data_api'
 
 
 def set_headers():
@@ -30,7 +30,7 @@ def set_headers():
 
 def get_final_url(base_url, params):
     """
-    Builds the final url before making the request to marketdata.app APIs
+    Builds the final url before making the request to market_data_api.app APIs
     :param base_url:    The base url on which the parameters are to be added
     :param params:      The query parameters in dictionary that need to be encoded in the final url
     :return:            The final URL that can be sent as a request to the API
@@ -56,7 +56,7 @@ def process_not_ok_response(response_json):
             return response_json['errmsg']
 
 
-def get_history(final_url, symbol):
+def get_candles(final_url, symbol):
     """
     Get the history for the symbol, whether symbol is an index or stock.
 

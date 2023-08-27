@@ -8,8 +8,9 @@ This file contains the functions that get data for options.
 """
 
 import datetime
-import marketdata.utilities as utilities
-import marketdata.api_interface as api
+
+import mdapi_functions.api_interface as api
+import mdapi_functions.utilities as utilities
 
 
 def lookup_option_symbol(underlying, expiry_date, option_type, strike_price):

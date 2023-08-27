@@ -7,11 +7,13 @@ This file contains the functions that get data for markets.
 
 """
 
-import requests
 import json
+
 import pandas as pd
-import marketdata.utilities as utilities
-import marketdata.api_interface as api
+import requests
+
+import mdapi_functions.api_interface as api
+import mdapi_functions.utilities as utilities
 
 
 def get_market_status(country=None, ason_date=None, from_date=None, to_date=None, num_of_days=None):

@@ -7,11 +7,11 @@ This file contains the functions that get data for indices.
 
 """
 
-import marketdata.utilities as utilities
-import marketdata.api_interface as api
+import mdapi_functions.api_interface as api
+import mdapi_functions.utilities as utilities
 
 
-def get_index_history(resolution, symbol, from_date=None, to_date=None, num_of_periods=None):
+def get_index_candles(resolution, symbol, from_date=None, to_date=None, num_of_periods=None):
     """
     Get historical price candles for an index.
     :param resolution:      The duration of each candle.
@@ -49,7 +49,7 @@ def get_index_history(resolution, symbol, from_date=None, to_date=None, num_of_p
             params['countback'] = num_of_periods
 
         final_url = api.get_final_url(base_url, params)
-        return api.get_history(final_url, symbol)
+        return api.get_candles(final_url, symbol)
     else:
         raise Exception("Parameters resolution and symbol are required")
 
