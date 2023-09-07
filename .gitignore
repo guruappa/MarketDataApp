@@ -2,3 +2,4 @@ config.properties
 
 venv/*
 
+test_script.py
