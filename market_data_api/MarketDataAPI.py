@@ -261,6 +261,9 @@ class Symbol(ABC):
     def __get_date_string(self, object):
         pass
 
+    def set_symbol(self, symbol):
+        self.symbol = symbol
+
     def get_logger(self):
         return self.logger
 
@@ -298,6 +301,7 @@ class Symbol(ABC):
 
         # get the base url
         base_url = f'{self.quote_url}{self.symbol}/?format=json&dateformat=timestamp'
+        self.logger.debug(f"Accessing URL : {base_url}")
         response = self.__api_instance.get_data_from_url(base_url, params)
         return self._format_quote_data(response)
 
@@ -631,11 +635,10 @@ class Symbol(ABC):
         :return:                            pandas DataFrame object containing the option chain
         """
         params = {}
-        underlying = self.__get_underlying()
 
-        if underlying:
+        if self.underlying:
             # get the base url
-            base_url = f'{self.option_chain_url}{underlying}/?format=json&dateformat=timestamp'
+            base_url = f'{self.option_chain_url}{self.underlying}/?format=json&dateformat=timestamp'
             params['range'] = moneyness
 
             if ason_date:
@@ -879,15 +882,10 @@ class Option(Symbol):
     def __init__(self, underlying, strike_price, option_type, expiry_date, country=None):
         super().__init__(country, symbol_type='option')
         self.api_instance = super().get_api_instance()
+        # super().set_underlying(self.underlying)
 
-        # Build the urls
-        self.quote_url = self.api_instance.get_api_url(api_name="option_quote")
-        self.expirations_url = self.api_instance.get_api_url(api_name="option_expirations")
-        self.strikes_url = self.api_instance.get_api_url(api_name="option_strikes")
-        self.option_chain_url = self.api_instance.get_api_url(api_name="option_chain")
         self.underlying = underlying
         self.strike_price = strike_price
-
         # Check the option type and set up 1 letter type
         match option_type.upper():
             case 'CALL':
@@ -895,12 +893,18 @@ class Option(Symbol):
             case 'PUT':
                 self.option_type = 'P'
 
-        # Check if the expiry date is given as python datetime object or as string.  If string, check its format.  If datetime object, convert to string
+        # TODO: Check if the expiry date is given as python datetime object or as string.  If string, check its format.  If datetime object, convert to string
         self.expiry_date = expiry_date
 
         # Build the option symbol given the ingredients
-        self.option_symbol = None
         self._build_option_symbol()
+        self.symbol = self.option_symbol
+
+        # Build the urls
+        self.quote_url = self.api_instance.get_api_url(api_name="option_quote")
+        self.expirations_url = self.api_instance.get_api_url(api_name="option_expirations")
+        self.strikes_url = self.api_instance.get_api_url(api_name="option_strikes")
+        self.option_chain_url = self.api_instance.get_api_url(api_name="option_chain")
 
     def _build_option_symbol(self):
         """
@@ -909,7 +913,7 @@ class Option(Symbol):
         expiry_date = datetime.datetime.strptime(self.expiry_date, '%Y-%m-%d').strftime('%y%m%d')
         strike_price = '{:0>8}'.format(int(self.strike_price * 1000))
         option_symbol = f'{self.underlying}{expiry_date}{self.option_type}{strike_price}'
-        self.set_option_symbol(option_symbol)
+        self.option_symbol = option_symbol
 
     def get_option_symbol(self):
         """
@@ -918,12 +922,6 @@ class Option(Symbol):
         :return :   option symbol in string format
         """
         return self.option_symbol
-
-    def set_option_symbol(self, option_symbol):
-        """
-        Sets the option symbol
-        """
-        self.option_symbol = option_symbol
 
     def get_candles(self, resolution, **kwargs):
         pass
