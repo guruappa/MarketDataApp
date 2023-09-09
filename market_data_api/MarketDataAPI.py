@@ -12,9 +12,29 @@ import numpy as np
 import pandas as pd
 import requests
 
+config.fileConfig(fname="logger_config.properties", defaults={'logfilename': "logs/marketdataapi_logs.log"},
+                  disable_existing_loggers=False)
+logger = logging.getLogger("MAIN")
+app_config_file = "config.properties"
 
-class MarketDataAPI:
-    def __init__(self, config_file="config.properties"):
+
+class Singleton(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+
+        return cls._instances[cls]
+
+
+"""
+MarketDataAPI connects to the APIs exposed by the marketdata.app
+"""
+
+
+class MarketDataAPI(metaclass=Singleton):
+    def __init__(self, config_file=app_config_file):
         """
         Initialize an instance of the class
 
@@ -25,12 +45,16 @@ class MarketDataAPI:
         self.__load_configs()
         self.__no_data_str = 'No Data'
         self.__set_logging()
+        self.__api_ratelimit_limit = None
+        self.__api_ratelimit_consumed = None
+        self.__api_ratelimit_remaining = None
+        self.__api_ratelimit_reset = None
 
     def __set_logging(self):
         log_config_file = self.__configs_data['logging']['log_config_file']
         log_file = self.__configs_data['logging']['log_file']
-        config.fileConfig(fname=log_config_file, defaults={'logfilename': log_file})
-        self.__logger = logging.getLogger(self.__class__.__name__)
+        config.fileConfig(fname=log_config_file, defaults={'logfilename': log_file}, disable_existing_loggers=False)
+        self.__logger = logging.getLogger(self.__class__.__name__) or logger
 
     def get_logger(self):
         return self.__logger
@@ -44,6 +68,7 @@ class MarketDataAPI:
         if os.path.isfile(self.config_file):
             return True
         else:
+            logger.error("CONFIGURATION FILE DOES NOT EXIST")
             return False
 
     def __load_configs(self):
@@ -52,13 +77,14 @@ class MarketDataAPI:
         """
         try:
             if self.__check_config_file():
+                logger.debug("READING CONFIGURATION FILE")
                 configs = configparser.ConfigParser()
                 configs.read(self.config_file)
 
                 for section in configs.sections():
                     self.__configs_data[section] = dict(configs.items(section))
         except Exception as e:
-            print(f'{e}')
+            logger.error("CONFIGURATION FILE NOT AVAILABLE", exc_info=True)
 
     def get_header(self):
         """
@@ -66,7 +92,9 @@ class MarketDataAPI:
 
         :return: The header information
         """
-        return {'Authorization': f'token {self.__configs_data["authentication"]["token"]}'}
+        auth_token = self.__configs_data["authentication"]["token"]
+        logger.debug(f"Authorization Token Found : {auth_token}")
+        return {'Authorization': f'token {auth_token}'}
 
     def get_api_url(self, api_name):
         """
@@ -83,8 +111,8 @@ class MarketDataAPI:
 
         :return: string containing the message
         """
-        # TODO: Log the status and error
         status = response_json['s']
+        self.__logger.info(f"Status : {self.__no_data_str}")
         match status:
             case 'no_data':
                 # when the server returned no data
@@ -113,17 +141,92 @@ class MarketDataAPI:
         :param params   :   The parameters for the API
         :return         : The response object of the API
         """
-        if params:
-            final_url = self.build_final_url(url, params)
+        # when either of the remaining rate limit variable is None or remaining rate limit > 0
+        if self.__api_ratelimit_remaining is None or self.__api_ratelimit_remaining > 0:
+            if params:
+                final_url = self.build_final_url(url, params)
+            else:
+                final_url = url
+
+            response = requests.get(final_url, headers=self.get_header())
+
+            self.__api_ratelimit_limit = int(response.headers['x-api-ratelimit-limit'])
+            self.__api_ratelimit_consumed = int(response.headers['x-api-ratelimit-consumed'])
+            self.__api_ratelimit_reset = int(response.headers['x-api-ratelimit-reset'])
+            self.__api_ratelimit_remaining = int(response.headers['x-api-ratelimit-remaining'])
+
+            self.__logger.debug(f"Response Status : {response.status_code}")
+            self.__logger.debug(
+                f"API Limits : Rate Limit -> {self.__api_ratelimit_limit} | Rate Limit Consumed -> {self.__api_ratelimit_consumed} | Rate Limit Remaining -> {self.__api_ratelimit_remaining} | Rate Reset Time -> {self.__api_ratelimit_reset}")
+            return response
         else:
-            final_url = url
+            self.__logger.warning("Rate Limit Exceeded")
+            return "Rate Limit Exceeded"
+
+    def get_market_status(self, country=None, ason_date=None, from_date=None, to_date=None, num_of_days=None):
+        """
+        Get the past, present, or future status for a stock market. The returning dataframe object will have status column
+        with values as "open" for trading days or "closed" for weekends or market holidays.
+
+        :param country      :   Use to specify the country. Use the two digit ISO 3166 country code. If no country is
+                                specified, US will be assumed. Only countries that Market Data supports for stock price
+                                data are available (currently only the United States).
+        :param ason_date    :   Consult whether the market was open or closed on the specified date in the YYYY-MM-DD
+                                format
+        :param from_date    :   The earliest date (inclusive) in the YYYY-MM-DD format. If you use countback, from_date
+                                is not required
+        :param to_date      :   The last date (inclusive) in the YYYY-MM-DD format
+        :param num_of_days  :   Countback will fetch a number of dates before to_date; if you use from, countback is not
+                                required
+
+        :return:                pandas dataframe object with the date and market status as on that date
+        """
+        params = {}
+        base_url = f"{self.get_api_url('market_status')}?format=json&dateformat=timestamp"
+
+        if country:
+            params['country'] = country
+        else:
+            params['country'] = 'US'
+
+        if ason_date:
+            params['date'] = ason_date
+
+        if from_date:
+            params['from'] = from_date
+
+        if to_date:
+            params['to'] = to_date
+
+        if num_of_days:
+            params['countback'] = num_of_days
+
+        final_url = self.build_final_url(base_url, params)
+        self.__logger.debug(f"Final URL : {final_url}")
 
         response = requests.get(final_url, headers=self.get_header())
-        return response
+        self.__logger.debug(f"Response Status : {response.status_code}")
+
+        if response.text:
+            response_json = json.loads(response.text)
+            status = response_json['s']
+
+            if status == 'ok':
+                columns = ['date', 'status']
+                dates = response_json['date']
+                status = response_json['status']
+                status_df = pd.DataFrame(list(zip(dates, status)), columns=columns)
+                return status_df
+            else:
+                return self.process_not_ok_response(response_json)
+        else:
+            self.__logger.warning(f"Oops...  Looks like the server is acting up.")
+            raise Exception("Oops...  Looks like the server is acting up.  Please check back later")
+
 
 
 """
-Base class for Stocks and Indices
+Base class for Stocks, Indices and Options
 """
 
 
@@ -149,8 +252,8 @@ class Symbol(ABC):
         self.country = country
         self.symbol_type = symbol_type
         self.underlying = None
-        self.__api_instance = MarketDataAPI(config_file="config.properties")
-        self.logger = self.__api_instance.get_logger()
+        self.__api_instance = MarketDataAPI(config_file=app_config_file)
+        self.logger = self.__api_instance.get_logger() or logger
         self.expirations_url = None
         self.strikes_url = None
         self.option_chain_url = None
@@ -288,7 +391,7 @@ class Symbol(ABC):
             else:
                 return self.__api_instance.process_not_ok_response(response_json)
         else:
-            # TODO: Log the exception
+            logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
     def _format_quote_data(self, url_response):
@@ -332,7 +435,7 @@ class Symbol(ABC):
             else:
                 return self.__api_instance.process_not_ok_response(response_json)
         else:
-            # TODO: Log the exception
+            logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
     def __get_underlying(self):
@@ -359,8 +462,6 @@ class Symbol(ABC):
                                 Date to be in YYYY-MM-DD format
         :return             :   List of expiry dates in YYYY-MM-DD format
         """
-        underlying_symbol = self.__get_underlying()
-
         params = {}
         if strike_price:
             params['strike'] = strike_price
@@ -368,9 +469,10 @@ class Symbol(ABC):
             params['date'] = ason_date
 
         # get the base url
-        base_url = f'{self.expirations_url}{underlying_symbol}/?format=json&dateformat=timestamp'
-        response = self.__api_instance.get_data_from_url(base_url, params)
+        base_url = f'{self.expirations_url}{self.underlying}/?format=json&dateformat=timestamp'
+        response = self.api_instance.get_data_from_url(base_url, params)
         return self._format_expirations_data(response)
+
 
     def _format_expirations_data(self, url_response):
         """
@@ -389,30 +491,28 @@ class Symbol(ABC):
             else:
                 return self.__api_instance.process_not_ok_response(response_json)
         else:
-            # TODO: Log the exception
+            logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
-    def get_strikes(self, strike_price=None, ason_date=None):
+    def get_strikes(self, expiration_date=None, ason_date=None):
         """
         Gets the strike prices for Options
 
-        :param strike_price :    Limit the lookup of expiration dates to the strike price provided.
-        :param ason_date    :   Use to lookup a historical list of expiration dates from a specific previous trading
-                                day. If date is omitted the expiration dates will be from the current trading day
-                                during market hours or from the last trading day when the market is closed.
-                                Date to be in YYYY-MM-DD format
-        :return             :   List of expiry dates in YYYY-MM-DD format
+        :param expiration_date :    Limit the lookup of expiration dates to the strike price provided.
+        :param ason_date       :   Use to lookup a historical list of expiration dates from a specific previous trading
+                                    day. If date is omitted the expiration dates will be from the current trading day
+                                    during market hours or from the last trading day when the market is closed.
+                                    Date to be in YYYY-MM-DD format
+        :return                 :   List of expiry dates in YYYY-MM-DD format
         """
-        underlying_symbol = self.__get_underlying()
-
         params = {}
-        if strike_price:
-            params['strike'] = strike_price
+        if expiration_date:
+            params['expiration'] = expiration_date
         if ason_date:
             params['date'] = ason_date
 
         # get the base url
-        base_url = f'{self.strikes_url}{underlying_symbol}/?format=json&dateformat=timestamp'
+        base_url = f'{self.strikes_url}{self.underlying}/?format=json&dateformat=timestamp'
         response = self.__api_instance.get_data_from_url(base_url, params)
         return self._format_strikes_data(response)
 
@@ -439,7 +539,7 @@ class Symbol(ABC):
                     strike_prices = pd.Series(strike_prices, index=range(len(strike_prices)))
                     expiration_dates = pd.Series(expiration, index=range(len(strike_prices)))
                     expiration_df['expiration'] = expiration_dates
-                    expiration_df['strike_prices'] = strike_prices
+                    expiration_df['strike_price'] = strike_prices
 
                     strike_price_df = pd.concat([strike_price_df, expiration_df], ignore_index=True)
                     strike_price_df = strike_price_df.reindex()
@@ -450,7 +550,7 @@ class Symbol(ABC):
             else:
                 return self.__api_instance.process_not_ok_response(response_json)
         else:
-            # TODO: Log the exception
+            logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
     def get_option_chain(self, ason_date=None, expiry_date=None, from_date=None, to_date=None, month=None, year=None,
@@ -580,8 +680,8 @@ class Symbol(ABC):
             response = self.__api_instance.get_data_from_url(base_url, params)
             return self._format_option_chain_data(response)
         else:
-            # TODO: Log the exception
-            raise Exception
+            logger.error("Underlying Not Provided.", exc_info=True)
+            raise "Underlying needs to be provided"
 
     def _format_option_chain_data(self, url_response):
         """
@@ -618,7 +718,7 @@ class Symbol(ABC):
             else:
                 return self.__api_instance.process_not_ok_response(response_json)
         else:
-            # TODO: Log the exception
+            logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
 
@@ -644,10 +744,6 @@ class Index(Symbol):
         self.candle_url = self.api_instance.get_api_url(api_name="index_candles")
         self.quote_url = self.api_instance.get_api_url(api_name="index_quote")
         self.logger = super().get_logger()
-        self.logger.debug(
-            f"Class : {self.__class__.__name__} | Function : {inspect.currentframe().f_code.co_name} | Candle URL : {self.candle_url}")
-        self.logger.debug(
-            f"Class : {self.__class__.__name__} | Function : {inspect.currentframe().f_code.co_name} | Quote URL : {self.candle_url}")
 
     def get_candles(self, resolution='D', from_date=None, to_date=None, num_of_periods=None):
         """
@@ -685,6 +781,7 @@ class Index(Symbol):
             response = self.api_instance.get_data_from_url(base_url, params)
             return self._format_candle_data(response)
         else:
+            self.logger.warning("Parameters resolution and symbol not provided.")
             raise Exception("Parameters resolution and symbol are required")
 
 
@@ -710,10 +807,6 @@ class Stock(Symbol):
         self.candle_url = self.api_instance.get_api_url(api_name="stock_candles")
         self.quote_url = self.api_instance.get_api_url(api_name="stock_quote")
         self.logger = super().get_logger()
-        self.logger.debug(
-            f"Class : {self.__class__.__name__} | Function : {inspect.currentframe().f_code.co_name} | Candle URL : {self.candle_url}")
-        self.logger.debug(
-            f"Class : {self.__class__.__name__} | Function : {inspect.currentframe().f_code.co_name} | Quote URL : {self.candle_url}")
 
     def get_candles(self, resolution='D', from_date=None, to_date=None, num_of_periods=None, exchange=None,
                     extended=False, adjustSplits=True, adjustDividends=True):
@@ -778,20 +871,20 @@ class Stock(Symbol):
             response = self.api_instance.get_data_from_url(base_url, params)
             return self._format_candle_data(response)
         else:
+            self.logger.warning("Parameters resolution and symbol not provided.")
             raise Exception("Parameters resolution and symbol are required")
 
 
 class Option(Symbol):
     def __init__(self, underlying, strike_price, option_type, expiry_date, country=None):
         super().__init__(country, symbol_type='option')
+        self.api_instance = super().get_api_instance()
 
         # Build the urls
-        self.__quote_url = super().set_quote_url(self.__api_instance.get_api_url(api_name="option_quote"))
-        self.__expirations_url = super().set_expirations_url(
-            self.__api_instance.get_api_url(api_name="option_expirations"))
-        self.__strikes_url = super().set_quote_url(self.__api_instance.get_api_url(api_name="option_strikes"))
-        self.__option_chain_url = super().set_quote_url(self.__api_instance.get_api_url(api_name="option_chain"))
-
+        self.quote_url = self.api_instance.get_api_url(api_name="option_quote")
+        self.expirations_url = self.api_instance.get_api_url(api_name="option_expirations")
+        self.strikes_url = self.api_instance.get_api_url(api_name="option_strikes")
+        self.option_chain_url = self.api_instance.get_api_url(api_name="option_chain")
         self.underlying = underlying
         self.strike_price = strike_price
 
@@ -831,3 +924,6 @@ class Option(Symbol):
         Sets the option symbol
         """
         self.option_symbol = option_symbol
+
+    def get_candles(self, resolution, **kwargs):
+        pass
