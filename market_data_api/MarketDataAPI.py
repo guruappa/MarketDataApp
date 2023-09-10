@@ -224,7 +224,6 @@ class MarketDataAPI(metaclass=Singleton):
             raise Exception("Oops...  Looks like the server is acting up.  Please check back later")
 
 
-
 """
 Base class for Stocks, Indices and Options
 """
@@ -476,7 +475,6 @@ class Symbol(ABC):
         base_url = f'{self.expirations_url}{self.underlying}/?format=json&dateformat=timestamp'
         response = self.api_instance.get_data_from_url(base_url, params)
         return self._format_expirations_data(response)
-
 
     def _format_expirations_data(self, url_response):
         """

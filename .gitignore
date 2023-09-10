@@ -1,4 +1,6 @@
 config.properties
+config.properties.bkup
+logger_config.properties
 
 venv/*
 
