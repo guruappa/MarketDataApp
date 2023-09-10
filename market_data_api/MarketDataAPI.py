@@ -163,6 +163,14 @@ class MarketDataAPI(metaclass=Singleton):
             self.__logger.warning("Rate Limit Exceeded")
             return "Rate Limit Exceeded"
 
+    def get_date_string(self, object):
+        date_classes = [datetime.datetime, datetime.date]
+        if (isinstance(object, datetime.datetime)) or (isinstance(object, datetime.date)):
+            return object.strftime("%Y-%m-%d")
+        else:
+            self.__logger.warning("Date object not provided")
+            raise "Date object not provided"
+
     def get_market_status(self, country=None, ason_date=None, from_date=None, to_date=None, num_of_days=None):
         """
         Get the past, present, or future status for a stock market. The returning dataframe object will have status column
@@ -190,21 +198,27 @@ class MarketDataAPI(metaclass=Singleton):
             params['country'] = 'US'
 
         if ason_date:
-            params['date'] = ason_date
+            if isinstance(ason_date, str):
+                params['date'] = ason_date
+            else:
+                params['date'] = self.get_date_string(ason_date)
 
         if from_date:
-            params['from'] = from_date
+            if isinstance(ason_date, str):
+                params['from'] = from_date
+            else:
+                params['from'] = self.get_date_string(from_date)
 
         if to_date:
-            params['to'] = to_date
+            if isinstance(to_date, str):
+                params['to'] = to_date
+            else:
+                params['to'] = self.get_date_string(to_date)
 
         if num_of_days:
             params['countback'] = num_of_days
 
-        final_url = self.build_final_url(base_url, params)
-        self.__logger.debug(f"Final URL : {final_url}")
-
-        response = requests.get(final_url, headers=self.get_header())
+        response = self.get_data_from_url(base_url, params)
         self.__logger.debug(f"Response Status : {response.status_code}")
 
         if response.text:
@@ -256,9 +270,6 @@ class Symbol(ABC):
         self.expirations_url = None
         self.strikes_url = None
         self.option_chain_url = None
-
-    def __get_date_string(self, object):
-        pass
 
     def set_symbol(self, symbol):
         self.symbol = symbol
@@ -469,7 +480,10 @@ class Symbol(ABC):
         if strike_price:
             params['strike'] = strike_price
         if ason_date:
-            params['date'] = ason_date
+            if isinstance(ason_date, str):
+                params['date'] = ason_date
+            else:
+                params['date'] = self.get_api_instance().get_date_string(ason_date)
 
         # get the base url
         base_url = f'{self.expirations_url}{self.underlying}/?format=json&dateformat=timestamp'
@@ -509,9 +523,16 @@ class Symbol(ABC):
         """
         params = {}
         if expiration_date:
-            params['expiration'] = expiration_date
+            if isinstance(expiration_date, str):
+                params['expiration'] = expiration_date
+            else:
+                params['expiration'] = self.get_api_instance().get_date_string(expiration_date)
+
         if ason_date:
-            params['date'] = ason_date
+            if isinstance(ason_date, str):
+                params['date'] = ason_date
+            else:
+                params['date'] = self.get_api_instance().get_date_string(ason_date)
 
         # get the base url
         base_url = f'{self.strikes_url}{self.underlying}/?format=json&dateformat=timestamp'
@@ -555,7 +576,8 @@ class Symbol(ABC):
             logger.error("Response Object Not Found.", exc_info=True)
             raise Exception
 
-    def get_option_chain(self, ason_date=None, expiry_date=None, from_date=None, to_date=None, month=None, year=None,
+    def get_option_chain(self, ason_date=None, expiration_date=None, from_date=None, to_date=None, month=None,
+                         year=None,
                          include_weekly=False, include_monthly=False, include_quarterly=False, dte=None, delta=None,
                          option_type=None, moneyness='all', strike_price=None, strike_price_count=None, minimum_oi=None,
                          minimum_volume=None, minimum_liquidity=None, max_bid_ask_spread=None,
@@ -568,7 +590,7 @@ class Symbol(ABC):
                                             day. If no ason_date is specified the chain will be the most current chain
                                             available during market hours. When the market is closed the chain will be
                                             from the last trading day.  Date to be in YYYY-MM-DD format
-        :param expiry_date              :   Limits the option chain to a specific expiration date. This parameter can be
+        :param expiration_date              :   Limits the option chain to a specific expiration date. This parameter can be
                                             used to request a quote along with the chain. If omitted all expirations
                                             will be returned.  Date to be in YYYY-MM-DD format
         :param from_date                :   Limit the option chain to expiration dates after from (inclusive). Should be
@@ -640,13 +662,25 @@ class Symbol(ABC):
             params['range'] = moneyness
 
             if ason_date:
-                params['date'] = ason_date
-            if expiry_date:
-                params['expiration'] = expiry_date
+                if isinstance(ason_date, str):
+                    params['date'] = ason_date
+                else:
+                    params['date'] = self.get_api_instance().get_date_string(ason_date)
+            if expiration_date:
+                if isinstance(expiration_date, str):
+                    params['expiration'] = expiration_date
+                else:
+                    params['expiration'] = self.get_api_instance().get_date_string(expiration_date)
             if from_date:
-                params['from'] = from_date
+                if isinstance(from_date, str):
+                    params['from'] = from_date
+                else:
+                    params['from'] = self.get_api_instance().get_date_string(from_date)
             if to_date:
-                params['to'] = to_date
+                if isinstance(to_date, str):
+                    params['to'] = to_date
+                else:
+                    params['to'] = self.get_api_instance().get_date_string(to_date)
             if month:
                 params['month'] = month
             if year:
@@ -770,9 +804,15 @@ class Index(Symbol):
             base_url = f'{self.candle_url}{resolution}/{self.symbol}/?format=json&dateformat=timestamp'
 
             if from_date:
-                params['from'] = from_date
+                if isinstance(from_date, str):
+                    params['from'] = from_date
+                else:
+                    params['from'] = self.get_api_instance().get_date_string(from_date)
             if to_date:
-                params['to'] = to_date
+                if isinstance(from_date, str):
+                    params['to'] = to_date
+                else:
+                    params['to'] = self.get_api_instance().get_date_string(to_date)
             if num_of_periods:
                 params['countback'] = num_of_periods
 
@@ -852,9 +892,17 @@ class Stock(Symbol):
             base_url = f'{self.candle_url}{resolution}/{self.symbol}/?format=json&dateformat=timestamp'
 
             if from_date:
-                params['from'] = from_date
+                if isinstance(from_date, str):
+                    params['from'] = from_date
+                else:
+                    params['from'] = self.get_api_instance().get_date_string(from_date)
+
             if to_date:
-                params['to'] = to_date
+                if isinstance(to_date, str):
+                    params['to'] = to_date
+                else:
+                    params['to'] = self.get_api_instance().get_date_string(to_date)
+
             if num_of_periods:
                 params['countback'] = num_of_periods
             if exchange:
@@ -877,7 +925,7 @@ class Stock(Symbol):
 
 
 class Option(Symbol):
-    def __init__(self, underlying, strike_price, option_type, expiry_date, country=None):
+    def __init__(self, underlying, strike_price, option_type, expiration_date, country=None):
         super().__init__(country, symbol_type='option')
         self.api_instance = super().get_api_instance()
         # super().set_underlying(self.underlying)
@@ -891,8 +939,10 @@ class Option(Symbol):
             case 'PUT':
                 self.option_type = 'P'
 
-        # TODO: Check if the expiry date is given as python datetime object or as string.  If string, check its format.  If datetime object, convert to string
-        self.expiry_date = expiry_date
+        if isinstance(expiration_date, str):
+            self.expiry_date = expiration_date
+        else:
+            self.expiry_date = self.get_api_instance().get_date_string(expiration_date)
 
         # Build the option symbol given the ingredients
         self._build_option_symbol()
