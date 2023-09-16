@@ -1,3 +1,12 @@
+"""
+market_data_api
+
+SDK library for working with the MarketData APIs
+"""
+
+__version__ = "0.0.1"
+__author__ = "Guruppa Padsali"
+
 import configparser
 import datetime
 import inspect
