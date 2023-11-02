@@ -7,3 +7,5 @@ venv/*
 test_script.py
 
 logs/*
+
+release_checklist.txt

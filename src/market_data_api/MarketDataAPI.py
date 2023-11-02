@@ -4,15 +4,10 @@ market_data_api
 SDK library for working with the MarketData APIs
 """
 
-__version__ = "0.0.1"
-__author__ = "Guruppa Padsali"
-
-import configparser
 import datetime
 import inspect
 import json
 import logging
-import os.path
 import urllib.parse
 from abc import ABC, abstractmethod
 from logging import config
@@ -24,7 +19,6 @@ import requests
 config.fileConfig(fname="logger_config.properties", defaults={'logfilename': "logs/marketdataapi_logs.log"},
                   disable_existing_loggers=False)
 logger = logging.getLogger("MAIN")
-app_config_file = "config.properties"
 
 
 class Singleton(type):
@@ -37,21 +31,38 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-"""
-MarketDataAPI connects to the APIs exposed by the marketdata.app
-"""
-
-
 class MarketDataAPI(metaclass=Singleton):
-    def __init__(self, config_file=app_config_file):
+    """
+    MarketDataAPI connects to the APIs exposed by the marketdata.app
+    """
+
+    def __init__(self, auth_token, config_file=None):
         """
         Initialize an instance of the class
 
-        :param config_file  :   The configuration file
+        :param auth_token   :   Authentication token
+        :param config_file  :   Config File
         """
-        self.config_file = config_file
-        self.__configs_data = {}
-        self.__load_configs()
+        if auth_token:
+            if len(auth_token) > 0:
+                self.token = auth_token
+                self.api_urls = {
+                    "market_status": "https://api.marketdata.app/v1/markets/status/",
+                    "stock_candles": "https://api.marketdata.app/v1/stocks/candles/",
+                    "stock_quote": "https://api.marketdata.app/v1/stocks/quotes/",
+                    "option_expirations": "https://api.marketdata.app/v1/options/expirations/",
+                    "option_lookup": "https://api.marketdata.app/v1/options/lookup/",
+                    "option_strikes": "https://api.marketdata.app/v1/options/strikes/",
+                    "option_chain": "https://api.marketdata.app/v1/options/chain/",
+                    "option_quote": "https://api.marketdata.app/v1/options/quotes/",
+                    "index_candles": "https://api.marketdata.app/v1/indices/candles/",
+                    "index_quote": "https://api.marketdata.app/v1/indices/quotes/",
+                }
+            else:
+                raise "Need authentication token"
+        else:
+            raise "Need authentication token"
+
         self.__no_data_str = 'No Data'
         self.__set_logging()
         self.__api_ratelimit_limit = None
@@ -60,40 +71,10 @@ class MarketDataAPI(metaclass=Singleton):
         self.__api_ratelimit_reset = None
 
     def __set_logging(self):
-        log_config_file = self.__configs_data['logging']['log_config_file']
-        log_file = self.__configs_data['logging']['log_file']
-        config.fileConfig(fname=log_config_file, defaults={'logfilename': log_file}, disable_existing_loggers=False)
-        self.__logger = logging.getLogger(self.__class__.__name__) or logger
+        self.__logger = logger
 
     def get_logger(self):
         return self.__logger
-
-    def __check_config_file(self):
-        """
-        Check if the config file exists
-
-        :return: True, if the file exists, else False
-        """
-        if os.path.isfile(self.config_file):
-            return True
-        else:
-            logger.error("CONFIGURATION FILE DOES NOT EXIST")
-            return False
-
-    def __load_configs(self):
-        """
-        Load the configuration settings from the config file into the instance variable
-        """
-        try:
-            if self.__check_config_file():
-                logger.debug("READING CONFIGURATION FILE")
-                configs = configparser.ConfigParser()
-                configs.read(self.config_file)
-
-                for section in configs.sections():
-                    self.__configs_data[section] = dict(configs.items(section))
-        except Exception as e:
-            logger.error("CONFIGURATION FILE NOT AVAILABLE", exc_info=True)
 
     def get_header(self):
         """
@@ -101,9 +82,7 @@ class MarketDataAPI(metaclass=Singleton):
 
         :return: The header information
         """
-        auth_token = self.__configs_data["authentication"]["token"]
-        logger.debug(f"Authorization Token Found : {auth_token}")
-        return {'Authorization': f'token {auth_token}'}
+        return {'Authorization': f'token {self.token}'}
 
     def get_api_url(self, api_name):
         """
@@ -112,7 +91,7 @@ class MarketDataAPI(metaclass=Singleton):
         :param api_name:  The name of the parameter
         :return:
         """
-        return self.__configs_data["api_urls"][api_name]
+        return self.api_urls[api_name]
 
     def process_not_ok_response(self, response_json):
         """
@@ -253,7 +232,7 @@ Base class for Stocks, Indices and Options
 
 
 class Symbol(ABC):
-    def __init__(self, symbol, country="US", symbol_type=None):
+    def __init__(self, symbol, country="US", symbol_type=None, auth_token=None):
         """
         Initialization method
 
@@ -269,12 +248,13 @@ class Symbol(ABC):
                                 symbol and the country of the exchange, but not the exchange code. Use the two digit
                                 ISO 3166 country code.  If no country is specified, US exchanges will be assumed.
         :param symbol_type  :   The type of the symbol, whether stock or index
+        :param auth_token   :   The authorization token for the MarketDataAPI
         """
         self.symbol = symbol
         self.country = country
         self.symbol_type = symbol_type
         self.underlying = None
-        self.__api_instance = MarketDataAPI(config_file=app_config_file)
+        self.__api_instance = MarketDataAPI(auth_token=auth_token)
         self.logger = self.__api_instance.get_logger() or logger
         self.expirations_url = None
         self.strikes_url = None
@@ -586,8 +566,8 @@ class Symbol(ABC):
             raise Exception
 
     def get_option_chain(self, ason_date=None, expiration_date=None, from_date=None, to_date=None, month=None,
-                         year=None,
-                         include_weekly=False, include_monthly=False, include_quarterly=False, dte=None, delta=None,
+                         year=None, include_weekly=False, include_monthly=False, include_quarterly=False, dte=None,
+                         delta=None,
                          option_type=None, moneyness='all', strike_price=None, strike_price_count=None, minimum_oi=None,
                          minimum_volume=None, minimum_liquidity=None, max_bid_ask_spread=None,
                          max_bid_ask_spread_pct=None):
@@ -599,7 +579,7 @@ class Symbol(ABC):
                                             day. If no ason_date is specified the chain will be the most current chain
                                             available during market hours. When the market is closed the chain will be
                                             from the last trading day.  Date to be in YYYY-MM-DD format
-        :param expiration_date              :   Limits the option chain to a specific expiration date. This parameter can be
+        :param expiration_date          :   Limits the option chain to a specific expiration date. This parameter can be
                                             used to request a quote along with the chain. If omitted all expirations
                                             will be returned.  Date to be in YYYY-MM-DD format
         :param from_date                :   Limit the option chain to expiration dates after from (inclusive). Should be
@@ -667,7 +647,7 @@ class Symbol(ABC):
 
         if self.underlying:
             # get the base url
-            base_url = f'{self.option_chain_url}{self.underlying}/?format=json&dateformat=timestamp'
+            base_url = f'{self.__api_instance.get_api_url(api_name="option_chain")}{self.underlying}/?format=json&dateformat=timestamp'
             params['range'] = moneyness
 
             if ason_date:
@@ -767,7 +747,7 @@ class Symbol(ABC):
 
 
 class Index(Symbol):
-    def __init__(self, symbol, country=None):
+    def __init__(self, symbol, country=None, auth_token=None):
         """
         Initialize an instance of Index class.
 
@@ -782,8 +762,10 @@ class Index(Symbol):
                                 with the symbol argument. This argument is useful when you know the ticker symbol and the
                                 country of the exchange, but not the exchange code. Use the two digit ISO 3166 country code.
                                 If no country is specified, US exchanges will be assumed.
+        :param auth_token   :   The authorization token for the MarketDataAPI
         """
-        super().__init__(symbol, country, symbol_type='index')
+        super().__init__(symbol, country, symbol_type='index', auth_token=auth_token)
+        self.underlying = symbol
         self.api_instance = super().get_api_instance()
         self.candle_url = self.api_instance.get_api_url(api_name="index_candles")
         self.quote_url = self.api_instance.get_api_url(api_name="index_quote")
@@ -836,7 +818,7 @@ class Index(Symbol):
 
 
 class Stock(Symbol):
-    def __init__(self, symbol, country=None):
+    def __init__(self, symbol, country=None, auth_token=None):
         """
         Initialize an instance of Stock class.
 
@@ -851,8 +833,10 @@ class Stock(Symbol):
                                 with the symbol argument. This argument is useful when you know the ticker symbol and the
                                 country of the exchange, but not the exchange code. Use the two digit ISO 3166 country code.
                                 If no country is specified, US exchanges will be assumed.
+        :param auth_token   :   The authorization token for the MarketDataAPI
         """
-        super().__init__(symbol, country, symbol_type='stock')
+        super().__init__(symbol, country, symbol_type='stock', auth_token=auth_token)
+        self.underlying = symbol
         self.api_instance = super().get_api_instance()
         self.candle_url = self.api_instance.get_api_url(api_name="stock_candles")
         self.quote_url = self.api_instance.get_api_url(api_name="stock_quote")
@@ -934,8 +918,8 @@ class Stock(Symbol):
 
 
 class Option(Symbol):
-    def __init__(self, underlying, strike_price, option_type, expiration_date, country=None):
-        super().__init__(country, symbol_type='option')
+    def __init__(self, underlying, strike_price, option_type, expiration_date, country=None, auth_token=None):
+        super().__init__(country, symbol_type='option', auth_token=auth_token)
         self.api_instance = super().get_api_instance()
         # super().set_underlying(self.underlying)
 
